@@ -13,3 +13,5 @@ npm install
 npm test
 npm run dev
 ```
+
+Hosted on [Netlify](https://app.netlify.com/start/deploy?repository=https://github.com/shadybassily/icons-helper).
