@@ -5,6 +5,7 @@ import { ResultRow } from './components/ResultRow';
 import { checkSvg, type CheckResult } from './core/check';
 import { buildIndex, type IndexedGlyph } from './core/glyph-matcher';
 import { parseSelection, type SelectionInfo } from './core/selection';
+import { readStoredSelection, writeStoredSelection } from './storage';
 
 type Filter = 'all' | CheckResult['status'];
 
@@ -16,8 +17,9 @@ function classNameOf(prefix: string, result: CheckResult): string | undefined {
 }
 
 export function App() {
-  const [selection, setSelection] = useState<SelectionInfo | null>(null);
-  const [selectionName, setSelectionName] = useState('');
+  const [stored] = useState(readStoredSelection);
+  const [selection, setSelection] = useState<SelectionInfo | null>(stored?.info ?? null);
+  const [selectionName, setSelectionName] = useState(stored?.name ?? '');
   const [selectionError, setSelectionError] = useState('');
   const [index, setIndex] = useState<IndexedGlyph[]>([]);
   const [indexing, setIndexing] = useState(false);
@@ -55,7 +57,9 @@ export function App() {
   const loadSelection = async ([file]: File[]) => {
     if (!file) return;
     try {
-      const info = parseSelection(await file.text());
+      const text = await file.text();
+      const info = parseSelection(text);
+      writeStoredSelection(file.name, text);
       setSelection(info);
       setSelectionName(file.name);
       setSelectionError('');
@@ -109,7 +113,7 @@ export function App() {
             <span>
               <strong>{selectionName}</strong> — {selection.icons.length} icons, class prefix{' '}
               <code className="font-mono">{selection.prefix}</code>
-              {indexing ? ' · indexing shapes…' : ''}. Click or drop to replace.
+              {indexing ? ' · indexing shapes…' : ' · saved in this browser'}. Click or drop to replace.
             </span>
           ) : (
             <span>
