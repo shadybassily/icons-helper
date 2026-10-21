@@ -1,0 +1,14 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 1rem = 10px, matching ynmo's spacing scale */
+html {
+  font-size: 62.5%;
+}
+
+body {
+  @apply bg-grey-bg01 font-body text-base text-dark;
+}

@@ -1,0 +1,13 @@
+node_modules
+dist
+*.local
+.env
+.env.*
+
+# Never commit real icon data (this repo is public)
+selection.json
+*.ttf
+*.woff
+*.woff2
+icons-font/
+icons-font.zip
