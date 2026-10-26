@@ -1,18 +1,23 @@
 import { useState } from 'react';
+import { CheckIcon, CopyIcon, IconButton } from './Icons';
 
 export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button
-      type="button"
+    <IconButton
+      label={copied ? 'Copied' : label}
+      className={copied ? 'text-color01' : ''}
       onClick={async () => {
-        await navigator.clipboard.writeText(text);
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch {
+          /* still show the check so the click is acknowledged */
+        }
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       }}
-      className="rounded-tiny border border-grey-bg03 bg-white px-8 py-2 text-xs text-color-text hover:border-color01 hover:text-color01"
     >
-      {copied ? 'Copied' : label}
-    </button>
+      {copied ? <CheckIcon /> : <CopyIcon />}
+    </IconButton>
   );
 }

@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { toMonochromeSvg } from '../core/monochrome';
 import type { IcoMoonIcon } from '../core/types';
 
 interface Props {
@@ -18,13 +20,14 @@ export function GlyphPreview({ icon, emSize, className = 'h-40 w-40' }: Props) {
   );
 }
 
-/** Shows an uploaded SVG file as-is. */
+/** Shows an uploaded SVG in a single grey, matching IcoMoon's one-fill preview. */
 export function SvgPreview({ source, className = 'h-40 w-40' }: { source: string; className?: string }) {
+  const mono = useMemo(() => toMonochromeSvg(source), [source]);
   return (
-    <img
-      src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`}
-      className={`${className} object-contain`}
-      alt=""
+    <div
+      className={`${className} text-color-text [&>svg]:h-full [&>svg]:w-full [&>svg]:max-h-full [&>svg]:max-w-full`}
+      dangerouslySetInnerHTML={{ __html: mono }}
+      aria-hidden
     />
   );
 }

@@ -1,19 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Accordion } from './components/Accordion';
 import { CopyButton } from './components/CopyButton';
 import { FileDrop } from './components/FileDrop';
-import { ResultRow } from './components/ResultRow';
-import { checkSvg, type CheckResult } from './core/check';
+import { IconButton, TrashIcon } from './components/Icons';
+import { FontGlyphTile, IconGrid, UploadTile } from './components/IconTile';
+import { checkSvg, willAddToFont, type CheckResult } from './core/check';
+import { generateIconsFont } from './core/font-generator';
 import { buildIndex, type IndexedGlyph } from './core/glyph-matcher';
-import { parseSelection, type SelectionInfo } from './core/selection';
+import { nameCollision, sanitizeGlyphName, usedNames } from './core/names';
+import { appendIcons, parseSelection, type NewIcon, type SelectionInfo } from './core/selection';
+import { downloadBlob, exportZip } from './core/zip-exporter';
 import { readStoredSelection, writeStoredSelection } from './storage';
 
 type Filter = 'all' | CheckResult['status'];
 
 const yieldToUi = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-function classNameOf(prefix: string, result: CheckResult): string | undefined {
-  const name = result.candidates[0]?.icon.properties.name;
-  return result.status === 'exists' && name ? `${prefix}${name}` : undefined;
+function newIconsFromResults(results: CheckResult[], emSize: number): NewIcon[] {
+  return results.filter(willAddToFont).map((r) => {
+    const name = sanitizeGlyphName(r.name);
+    const icon: NewIcon = { name, paths: r.paths };
+    if (r.width !== emSize) icon.width = r.width;
+    return icon;
+  });
 }
 
 export function App() {
@@ -26,6 +35,8 @@ export function App() {
   const [results, setResults] = useState<CheckResult[]>([]);
   const [checking, setChecking] = useState(0);
   const [filter, setFilter] = useState<Filter>('all');
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState('');
 
   useEffect(() => {
     if (!selection) {
@@ -64,6 +75,7 @@ export function App() {
       setSelectionName(file.name);
       setSelectionError('');
       setResults([]);
+      setGenerateError('');
     } catch (e) {
       setSelectionError((e as Error).message);
     }
@@ -78,9 +90,12 @@ export function App() {
       setChecking(files.length - i - 1);
       await yieldToUi();
     }
-    setResults((prev) => [...checked, ...prev.filter((p) => !checked.some((c) => c.filename === p.filename))]);
+    setResults((prev) => [...checked, ...prev]);
     setChecking(0);
   };
+
+  const existing = useMemo(() => usedNames(selection?.icons ?? []), [selection]);
+  const batchNames = useMemo(() => results.map((r) => ({ id: r.id, name: r.name })), [results]);
 
   const counts = useMemo(() => {
     const c = { exists: 0, possible: 0, new: 0, invalid: 0 };
@@ -88,21 +103,50 @@ export function App() {
     return c;
   }, [results]);
 
+  const toAdd = useMemo(() => results.filter(willAddToFont), [results]);
+  const canGenerate =
+    Boolean(selection) &&
+    toAdd.length > 0 &&
+    toAdd.every((r) => sanitizeGlyphName(r.name) && !nameCollision(r.name, existing, batchNames, r.id));
+
   const existingLines = results
-    .filter((r) => r.status === 'exists')
-    .map((r) => `${r.filename} → ${classNameOf(selection?.prefix ?? '', r)}`)
+    .filter((r) => r.status === 'exists' || r.decision === 'use-existing')
+    .map((r) => {
+      const name = r.candidates[0]?.icon.properties.name;
+      return name ? `${r.filename} → ${selection?.prefix ?? ''}${name}` : r.filename;
+    })
     .join('\n');
 
   const visible = filter === 'all' ? results : results.filter((r) => r.status === filter);
   const ready = Boolean(selection) && !indexing;
 
+  const generate = async () => {
+    if (!selection || !canGenerate) return;
+    setGenerating(true);
+    setGenerateError('');
+    try {
+      const next = appendIcons(selection, newIconsFromResults(results, selection.emSize));
+      const files = generateIconsFont(next);
+      downloadBlob(await exportZip(files), 'icons-font.zip');
+    } catch (e) {
+      setGenerateError((e as Error).message || 'Could not generate the font zip.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const patch = (id: string, update: Partial<CheckResult>) => {
+    setResults((prev) => prev.map((r) => (r.id === id ? { ...r, ...update } : r)));
+  };
+
   return (
     <main className="mx-auto max-w-[96rem] space-y-24 px-20 py-40">
       <header className="space-y-6">
-        <h1 className="text-large font-bold">Icon checker</h1>
+        <h1 className="text-large font-bold">Icon helper</h1>
         <p className="max-w-[72rem] text-sm text-color-text">
-          Drop your current <code className="font-mono">selection.json</code>, then the SVGs you want to add. Each
-          file is compared by shape, not by filename, so a renamed icon still comes back as already in the font.
+          Drop your current <code className="font-mono">selection.json</code>, then the SVGs you want to add. Matching
+          is by shape, not filename. Generate downloads a zip — replace{' '}
+          <code className="font-mono">projects/ynmo-ui/assets/icons-font</code> with its contents.
         </p>
       </header>
 
@@ -122,10 +166,40 @@ export function App() {
           )}
         </FileDrop>
         {selectionError && <p className="text-sm text-red">{selectionError}</p>}
+        {selection && !indexing && (
+          <Accordion label="Icons" count={selection.icons.length} defaultOpen>
+            <IconGrid>
+              {selection.icons.map((icon) => (
+                <FontGlyphTile
+                  key={icon.properties.code}
+                  icon={icon}
+                  prefix={selection.prefix}
+                  emSize={selection.emSize}
+                />
+              ))}
+            </IconGrid>
+          </Accordion>
+        )}
       </section>
 
       <section className={`space-y-10 ${ready ? '' : 'pointer-events-none opacity-50'}`}>
-        <h2 className="text-b-md font-semibold">2. SVGs to check</h2>
+        <div className="flex flex-wrap items-center justify-between gap-10">
+          <h2 className="text-b-md font-semibold">2. SVGs to add</h2>
+          <button
+            type="button"
+            onClick={() => void generate()}
+            disabled={!canGenerate || generating}
+            className="rounded-md bg-color01 px-16 py-8 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {generating ? 'Generating…' : 'Generate font'}
+          </button>
+        </div>
+        <p className="text-xs text-color-text">
+          Similar matches are left out of the zip unless you mark them as new. Download{' '}
+          <code className="font-mono">icons-font.zip</code> and replace{' '}
+          <code className="font-mono">projects/ynmo-ui/assets/icons-font</code>.
+        </p>
+        {generateError && <p className="text-sm text-red">{generateError}</p>}
         <FileDrop accept=".svg" multiple onFiles={checkFiles}>
           {checking > 0
             ? `Checking ${checking} remaining…`
@@ -159,26 +233,28 @@ export function App() {
                 </button>
               ))}
             <div className="ml-auto flex gap-8">
-              {counts.exists > 0 && <CopyButton text={existingLines} label="Copy existing classes" />}
-              <button
-                type="button"
-                onClick={() => setResults([])}
-                className="rounded-tiny px-8 py-2 text-xs text-color-text hover:text-red"
-              >
-                Clear
-              </button>
+              {existingLines && <CopyButton text={existingLines} label="Copy existing classes" />}
+              <IconButton label="Clear" className="hover:text-red" onClick={() => setResults([])}>
+                <TrashIcon />
+              </IconButton>
             </div>
           </div>
-          <ul className="space-y-10">
-            {visible.map((r) => (
-              <ResultRow
-                key={r.filename}
-                result={r}
-                prefix={selection?.prefix ?? ''}
-                emSize={selection?.emSize ?? 1024}
-              />
-            ))}
-          </ul>
+          <Accordion label="Icons" count={visible.length} defaultOpen>
+            <IconGrid>
+              {visible.map((r) => (
+                <UploadTile
+                  key={r.id}
+                  result={r}
+                  prefix={selection?.prefix ?? ''}
+                  existing={existing}
+                  batch={batchNames}
+                  onName={(name) => patch(r.id, { name })}
+                  onDecision={(decision) => patch(r.id, { decision })}
+                  onRemove={() => setResults((prev) => prev.filter((p) => p.id !== r.id))}
+                />
+              ))}
+            </IconGrid>
+          </Accordion>
         </section>
       )}
     </main>
