@@ -4,9 +4,11 @@ import { CopyButton } from './components/CopyButton';
 import { FileDrop } from './components/FileDrop';
 import { IconButton, TrashIcon } from './components/Icons';
 import { FontGlyphTile, IconGrid, UploadTile } from './components/IconTile';
+import { TypeFilters } from './components/TypeFilters';
 import { checkSvg, willAddToFont, type CheckResult } from './core/check';
 import { generateIconsFont } from './core/font-generator';
 import { buildIndex, type IndexedGlyph } from './core/glyph-matcher';
+import { iconMatchesTypes, type IconTypeId } from './core/icon-categories';
 import { nameCollision, sanitizeGlyphName, usedNames } from './core/names';
 import { appendIcons, parseSelection, type NewIcon, type SelectionInfo } from './core/selection';
 import { downloadBlob, exportZip } from './core/zip-exporter';
@@ -37,6 +39,7 @@ export function App() {
   const [filter, setFilter] = useState<Filter>('all');
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState('');
+  const [typeFilters, setTypeFilters] = useState<IconTypeId[]>([]);
 
   useEffect(() => {
     if (!selection) {
@@ -76,6 +79,7 @@ export function App() {
       setSelectionError('');
       setResults([]);
       setGenerateError('');
+      setTypeFilters([]);
     } catch (e) {
       setSelectionError((e as Error).message);
     }
@@ -119,6 +123,10 @@ export function App() {
 
   const visible = filter === 'all' ? results : results.filter((r) => r.status === filter);
   const ready = Boolean(selection) && !indexing;
+  const fontIcons = useMemo(() => {
+    if (!selection) return [];
+    return selection.icons.filter((icon) => iconMatchesTypes(icon.properties.name, typeFilters));
+  }, [selection, typeFilters]);
 
   const generate = async () => {
     if (!selection || !canGenerate) return;
@@ -167,17 +175,24 @@ export function App() {
         </FileDrop>
         {selectionError && <p className="text-sm text-red">{selectionError}</p>}
         {selection && !indexing && (
-          <Accordion label="Icons" count={selection.icons.length} defaultOpen>
-            <IconGrid>
-              {selection.icons.map((icon) => (
-                <FontGlyphTile
-                  key={icon.properties.code}
-                  icon={icon}
-                  prefix={selection.prefix}
-                  emSize={selection.emSize}
-                />
-              ))}
-            </IconGrid>
+          <Accordion label="Icons" count={fontIcons.length} defaultOpen>
+            <div className="space-y-10">
+              <TypeFilters selected={typeFilters} onChange={setTypeFilters} />
+              {fontIcons.length === 0 ? (
+                <p className="text-sm text-color-text">No icons in the selected types.</p>
+              ) : (
+                <IconGrid>
+                  {fontIcons.map((icon) => (
+                    <FontGlyphTile
+                      key={icon.properties.code}
+                      icon={icon}
+                      prefix={selection.prefix}
+                      emSize={selection.emSize}
+                    />
+                  ))}
+                </IconGrid>
+              )}
+            </div>
           </Accordion>
         )}
       </section>
